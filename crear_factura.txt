@@ -1,0 +1,207 @@
+void automation.Crear_Factura(String QuotesID)
+{
+// id organizacion de zoho books
+IDOrganizacionBooks = "XXXXXXXX50";
+// Se obtiene el presupuesto  
+Quotes = zoho.crm.getRecordById("Quotes",QuotesID.tolong());
+CustomerID = Quotes.get("Contact_Name").getJSON("id");
+DealsID = Quotes.get("Deal_Name").getJSON("id");
+// Se obtiene el Customer de CRM  
+ContactoCRM = zoho.crm.getRecordById("Contacts",CustomerID);
+Correo = ContactoCRM.get("Email");
+// Se obtiene el Customer de Books y se valida por el email  
+ContactoBooks = zoho.books.getRecords("Contacts",IDOrganizacionBooks,"email=" + Correo,"customer_connetion");
+Resultado = ContactoBooks.get("contacts");
+// en esta sección se valida si el cliente existe y si no se crea uno en books
+if(Resultado.size() == 0)
+{
+	MapaContactoBooks = Map();
+	MapaContactoBooks.put("contact_name",ContactoCRM.get("Full_Name"));
+	MapaContactoBooks.put("company_name",ContactoCRM.get("Full_Name"));
+	MapaContactoBooks.put("contact_type","customer");
+	PersonasContacto = Map();
+	PersonasContacto.put("first_name",ContactoCRM.get("First_Name"));
+	PersonasContacto.put("last_name",ContactoCRM.get("Last_Name"));
+	PersonasContacto.put("email",ContactoCRM.get("Email"));
+	PersonasContacto.put("phone",ContactoCRM.get("Phone"));
+	PersonasContacto.put("mobile",ContactoCRM.get("Mobile"));
+	PersonasContacto.put("is_primary_contact",true);
+	ListaPersonas = List();
+	ListaPersonas.add(PersonasContacto);
+	MapaContactoBooks.put("contact_persons",ListaPersonas);
+	MapaDireccion = Map();
+	MapaDireccion.put("address",ContactoCRM.get("Mailing_Street"));
+	MapaDireccion.put("city",ContactoCRM.get("Mailing_City"));
+	MapaDireccion.put("state",ContactoCRM.get("Mailing_State"));
+	MapaDireccion.put("zip",ContactoCRM.get("Mailing_Zip"));
+	MapaContactoBooks.put("billing_address",MapaDireccion);
+	DatosPropietario = ContactoCRM.get("Owner");
+	MapaContactoBooks.put("crm_owner_id",DatosPropietario.get("id"));
+	CrearContacto = zoho.books.createRecord("Contacts",IDOrganizacionBooks,MapaContactoBooks,"customer_connetion");
+	Respuesta = CrearContacto.get("contact");
+	IDClienteZBooks = Respuesta.get("contact_id");
+}
+else
+{
+	ListaResultado = Resultado.toList();
+	if(Resultado.size() > 1)
+	{
+		for each  registro in ListaResultado
+		{
+			Mapa = registro.toMap();
+			EstadoenCRM = Mapa.get("is_linked_with_zohocrm");
+			if(EstadoenCRM == true)
+			{
+				IDClienteZBooks = Mapa.get("contact_id");
+			}
+		}
+	}
+	if(Resultado.size() == 1)
+	{
+		for each  registro in ListaResultado
+		{
+			Mapa = registro.toMap();
+			IDClienteZBooks = Mapa.get("contact_id");
+		}
+	}
+}
+// En esta sección se obtienen los productos del presupuesto y se valida si existe en books, de no ser así se crea 
+Owner = Quotes.get("Owner");
+Product_Details = Quotes.get("Product_Details");
+Lista_Product = Product_Details.toList();
+line_itemsInvoice = List();
+for each  Product in Lista_Product
+{
+	ProductCRM = zoho.crm.getRecordById("Products",Product.get('product').getJSON("id").tolong());
+	itemsBooks = zoho.books.getRecords("items",IDOrganizacionBooks,"sku=" + ProductCRM.get("Product_Code"),"items_connetion");
+	Resultado = itemsBooks.get("items");
+	if(Resultado.size() == 0)
+	{
+		mapaItem = Map();
+		mapaItem.put("name",ProductCRM.get("Product_Name"));
+		mapaItem.put("rate",ProductCRM.get("Unit_Price"));
+		mapaItem.put("description",ProductCRM.get("Description"));
+		mapaItem.put("sku",ProductCRM.get("Product_Code"));
+		CrearItem = zoho.books.createRecord("items",IDOrganizacionBooks,mapaItem,"items_connetion");
+		info CrearItem;
+		Respuesta = CrearItem.get("iteam");
+		IDIteamZBooks = Respuesta.get("iteam_id");
+	}
+	else
+	{
+		ListaResultado = Resultado.toList();
+		if(Resultado.size() > 1)
+		{
+			for each  registro in ListaResultado
+			{
+				Mapa = registro.toMap();
+				EstadoenCRM = Mapa.get("is_linked_with_zohocrm");
+				if(EstadoenCRM == true)
+				{
+					IDIteamZBooks = Mapa.get("item_id");
+				}
+			}
+		}
+		if(Resultado.size() == 1)
+		{
+			for each  registro in ListaResultado
+			{
+				Mapa = registro.toMap();
+				IDIteamZBooks = Mapa.get("item_id");
+			}
+		}
+	}
+	info IDIteamZBooks;
+	info Product;
+	// 	En este bloque se van creando partes del mapa de invoices 
+	mapItemsInvoice = Map();
+	mapItemsInvoice.put("item_id",IDIteamZBooks);
+	mapItemsInvoice.put("quantity",Product.get("quantity"));
+	mapItemsInvoice.put("rate",Product.get("unit_price"));
+	mapItemsInvoice.put("discount_amount",Product.get("Discount"));
+	mapItemsInvoice.put("discount",Product.get("Discount"));
+	mapItemsInvoice.put("description",Product.get("product_description"));
+
+	/*
+	Los tax solo se reflejan si existen en zoho books, es importante crearlos para 		poder utilizarlos 
+	
+	line_tax = Product.get("line_tax");
+	if(Product.get("line_tax").size() > 0){
+		line_tax_0 = Product.get("line_tax").get(0);
+		info line_tax_0;
+		taxesData = invokeurl
+		[
+			url :"https://www.zohoapis.com/books/v3/settings/taxes?organization_id="+IDOrganizacionBooks
+			type :GET
+			connection:"items_connetion"
+		];
+		taxes = taxesData.get("taxes");
+		taxes_id = "";
+		for each tax in taxes
+		{
+			if(currency.get("currency_code") == line_tax_0.get("name")){
+				taxes_id = tax.get("tax_id");
+			}
+		}
+		mapItemsInvoice.put("tax_id",taxes_id);
+		mapItemsInvoice.put("tax_name",line_tax_0.get("name"));
+		mapItemsInvoice.put("tax_percentage",line_tax_0.get("percentage"));
+	}
+	*/
+	
+	line_itemsInvoice.add(mapItemsInvoice);
+	
+}
+mapInvoices = Map();
+
+/*  
+Esta sección solo es en los países que no aplican, por ejemplo México, pero se tiene que crear un producto para esa funcionalidad
+
+if(Quotes.get("Adjustment") > 0 &&  Quotes.get("currency_symbol") == "MXN"){
+	mapAjuste = Map();
+	mapAjuste.put("item_id",IDIteamZBooks);
+	mapAjuste.put("quantity",1);
+	mapAjuste.put("rate",Quotes.get("Adjustment"));
+	mapAjuste.put("discount_amount",Product.get("Discount"));
+	mapAjuste.put("discount",Product.get("Discount"));
+	mapAjuste.put("description",Product.get("product_description"));
+	line_itemsInvoice.add(mapItemsInvoice);
+}
+else{
+	mapInvoices.put("adjustment",Quotes.get("Adjustment"));
+}
+*/ 
+
+currenciesData = invokeurl
+[
+	url :"https://www.zohoapis.com/books/v3/settings/currencies?organization_id="+IDOrganizacionBooks
+	type :GET
+	connection:"items_connetion"
+];
+currencies = currenciesData.get("currencies");
+currencyMX_id = "";
+for each currency in currencies
+{
+	if(currency.get("currency_code") == "MXN"){
+		currencyMX_id = currency.get("currency_id");
+	}
+}
+
+// 	En este bloque se termina de crear el mapa de invoices 
+mapInvoices.put("line_items",line_itemsInvoice);
+mapInvoices.put("currency_id",currencyMX_id);
+mapInvoices.put("customer_id",IDClienteZBooks);
+mapInvoices.put("zcrm_potential_id",DealsID);
+mapInvoices.put("date",today);
+mapInvoices.put("adjustment_description",Quotes.get("Description"));
+mapInvoices.put("terms",Quotes.get("Terms_and_Conditions"));
+mapInvoices.put("salesperson_name",Owner.get("name"));
+mapInvoices.put("notes","Gracias por su confianza !!");
+
+info mapInvoices;
+
+// 	Aquí se crea la invoices
+createInvoice = zoho.books.createRecord("invoices",IDOrganizacionBooks,mapInvoices,"invoices_connetion");
+info createInvoice;
+
+}
